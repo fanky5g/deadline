@@ -2,7 +2,6 @@ package deadline
 
 import (
 	"context"
-	"fmt"
 	"time"
 )
 
@@ -45,7 +44,6 @@ func (w *Worker) Start(c context.Context, hotExit context.Context, tick float64,
 				onDone()
 				return
 			case <-hotExit.Done():
-				fmt.Println("hot exit called")
 				onDone()
 				return
 			case <-timer.C:
