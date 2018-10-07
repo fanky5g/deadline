@@ -2,6 +2,7 @@ package deadline
 
 import (
 	"context"
+	"fmt"
 	"time"
 )
 
@@ -24,7 +25,7 @@ func newWorker(id int, workerQueue chan Worker) {
 
 // Start "starts" the worker by starting a goroutine, that is
 // an infinite "for-select" loop.
-func (w *Worker) Start(c context.Context, tick float64, work Contract, done chan string) {
+func (w *Worker) Start(c context.Context, hotExit context.Context, tick float64, work Contract, done chan string) {
 	timer := time.NewTicker(time.Duration(tick) * time.Millisecond)
 
 	go func() {
@@ -41,6 +42,10 @@ func (w *Worker) Start(c context.Context, tick float64, work Contract, done chan
 				onDone()
 				return
 			case <-w.QuitChan:
+				onDone()
+				return
+			case <-hotExit.Done():
+				fmt.Println("hot exit called")
 				onDone()
 				return
 			case <-timer.C:

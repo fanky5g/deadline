@@ -17,12 +17,13 @@ type Engine struct {
 	ticked        float64
 	quit          chan int
 	pool          chan Contract
-	log           map[string]bool //shallow log of entries
+	log           map[string]map[context.Context]context.CancelFunc //shallow log of entries
 	fileStorage   *os.File
 	memoryStorage map[string]Contract
 
 	workerQueue chan Worker
 	done        chan string
+	delete      map[string]bool
 }
 
 type decodeFunc func(json.RawMessage) (map[string]Contract, error)
@@ -46,10 +47,11 @@ func New(numWorkers int, filepath string, quit chan int, decode decodeFunc) (*En
 	engine := new(Engine)
 	engine.quit = quit
 	engine.pool = make(chan Contract, poolBuffer)
-	engine.log = make(map[string]bool)
+	engine.log = make(map[string]map[context.Context]context.CancelFunc)
 	engine.memoryStorage = make(map[string]Contract)
 	engine.workerQueue = make(chan Worker, numWorkers)
 	engine.done = make(chan string)
+	engine.delete = make(map[string]bool)
 	engine.ticked = 0
 
 	for i := 0; i < numWorkers; i++ {
@@ -81,7 +83,7 @@ func New(numWorkers int, filepath string, quit chan int, decode decodeFunc) (*En
 			engine.memoryStorage = decoded
 			for k, v := range decoded {
 				engine.pool <- v
-				engine.log[k] = true
+				engine.log[k] = nil
 			}
 		}
 	}
@@ -102,18 +104,25 @@ func (engine *Engine) Start() {
 		for {
 			select {
 			// receive new contract
-			case contract := <-engine.pool:
-				// get next free worker
-				worker := <-engine.workerQueue
-				worker.Start(c, _heartBeat, contract, engine.done)
-				// process all existing items in loop, process item if timed out, and delete
-				// read from workqueue
+			case cont := <-engine.pool:
+				if _, ok := engine.delete[cont.GetIdentifier()]; !ok {
+					// get next free worker
+					worker := <-engine.workerQueue
+
+					if contextMap, ok := engine.log[cont.GetIdentifier()]; ok {
+						for hotExit, _ := range contextMap {
+							worker.Start(c, hotExit, _heartBeat, cont, engine.done)
+						}
+					} else {
+						worker.Start(c, nil, _heartBeat, cont, engine.done)
+					}
+				} else {
+					delete(engine.delete, cont.GetIdentifier())
+				}
 			case id := <-engine.done:
-				fmt.Printf("Number of items before removing %v from memory storage: %v\n", id, len(engine.memoryStorage))
 				delete(engine.log, id)
 				delete(engine.memoryStorage, id)
 				engine.saveSnapshot()
-				fmt.Printf("Number of items after removing %v from memory storage: %v\n", id, len(engine.memoryStorage))
 			}
 		}
 	}()
@@ -175,7 +184,11 @@ func (engine *Engine) Enqueue(contract Contract) error {
 	}
 
 	// save item to pool
-	engine.log[id] = true
+	c, cancel := context.WithCancel(context.Background())
+
+	engine.log[id] = map[context.Context]context.CancelFunc{
+		c: cancel,
+	}
 	engine.memoryStorage[id] = contract
 	engine.pool <- contract
 
@@ -184,4 +197,16 @@ func (engine *Engine) Enqueue(contract Contract) error {
 	}
 
 	return nil
+}
+
+// Prune remove contract from engine pool, if worker already spawned for contract, close worker
+func (engine *Engine) Prune(contractID string) {
+	if contextMap, ok := engine.log[contractID]; ok {
+		for _, v := range contextMap {
+			v()
+		}
+	}
+
+	// mark for deletion
+	engine.delete[contractID] = true
 }

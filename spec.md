@@ -7,3 +7,6 @@ Package Deadline will present an interface (Contract) that specifies these behav
 type Engine, will run as a background function(go ....) that continually loops over items in pool
 Engine enters a sleep mode when theres no items in its deadline channel and wakes up when one or more objects are in pool
 Engine will persist to localfile provided in the new function; if no file is presented, persistence mode will be disabled;
+
+Prune contract by id: keep a map of contractid against context...cancel context when pruned
+range through pool of contracts and remove contract
