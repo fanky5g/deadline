@@ -83,7 +83,7 @@ func New(numWorkers int, filepath string, quit chan int, decode decodeFunc) (*En
 			engine.memoryStorage = decoded
 			for k, v := range decoded {
 				engine.pool <- v
-				engine.log[k] = nil
+				engine.LogContext(k)
 			}
 		}
 	}
@@ -110,7 +110,7 @@ func (engine *Engine) Start() {
 					worker := <-engine.workerQueue
 
 					if contextMap, ok := engine.log[cont.GetIdentifier()]; ok {
-						for hotExit, _ := range contextMap {
+						for hotExit := range contextMap {
 							worker.Start(c, hotExit, _heartBeat, cont, engine.done)
 						}
 					} else {
@@ -183,12 +183,7 @@ func (engine *Engine) Enqueue(contract Contract) error {
 		return fmt.Errorf("cannot enqueue item. entry with id %v already exists", id)
 	}
 
-	// save item to pool
-	c, cancel := context.WithCancel(context.Background())
-
-	engine.log[id] = map[context.Context]context.CancelFunc{
-		c: cancel,
-	}
+	engine.LogContext(contract.GetIdentifier())
 	engine.memoryStorage[id] = contract
 	engine.pool <- contract
 
@@ -197,6 +192,15 @@ func (engine *Engine) Enqueue(contract Contract) error {
 	}
 
 	return nil
+}
+
+// LogContext adds cancellable context to log
+func (engine *Engine) LogContext(contractID string) {
+	c, cancel := context.WithCancel(context.Background())
+
+	engine.log[contractID] = map[context.Context]context.CancelFunc{
+		c: cancel,
+	}
 }
 
 // Prune remove contract from engine pool, if worker already spawned for contract, close worker
