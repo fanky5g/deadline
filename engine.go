@@ -172,7 +172,8 @@ func cleanup(engine *Engine) {
 
 // ClearStorage empties all contents of the storage file
 func (engine *Engine) ClearStorage() error {
-	return engine.fileStorage.Truncate(0)
+	engine.fileStorage.Truncate(0)
+	return nil
 }
 
 // Enqueue adds a new entity contract pool to engine
