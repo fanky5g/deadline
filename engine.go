@@ -1,13 +1,9 @@
 package deadline
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"flag"
 	"fmt"
-	"io/ioutil"
-	"os"
 )
 
 // Engine is the main construct that runs in background to check which items
@@ -18,15 +14,16 @@ type Engine struct {
 	quit          chan int
 	pool          chan Contract
 	log           map[string]map[context.Context]context.CancelFunc //shallow log of entries
-	fileStorage   *os.File
 	memoryStorage map[string]Contract
+	store         Store
 
 	workerQueue chan Worker
 	done        chan string
 	delete      map[string]bool
 }
 
-type decodeFunc func(json.RawMessage) (map[string]Contract, error)
+// Serializer takes a byte array and returns a Contract map
+type Serializer func([]byte) (map[string]Contract, error)
 
 var (
 	poolBuffer int
@@ -42,10 +39,10 @@ func init() {
 // New creates a new engine object
 // @param numWorkers: number of workers to create
 // @return *Engine
-func New(numWorkers int, filepath string, quit chan int, decode decodeFunc) (*Engine, error) {
+func New(ctx context.Context, numWorkers int, store Store) (*Engine, error) {
 	// make a buffered channel of contracts
 	engine := new(Engine)
-	engine.quit = quit
+	engine.quit = make(chan int)
 	engine.pool = make(chan Contract, poolBuffer)
 	engine.log = make(map[string]map[context.Context]context.CancelFunc)
 	engine.memoryStorage = make(map[string]Contract)
@@ -53,35 +50,26 @@ func New(numWorkers int, filepath string, quit chan int, decode decodeFunc) (*En
 	engine.done = make(chan string)
 	engine.delete = make(map[string]bool)
 	engine.ticked = 0
+	engine.store = store
+
+	go func() {
+		<-ctx.Done()
+		engine.quit <- 1
+	}()
 
 	for i := 0; i < numWorkers; i++ {
 		go newWorker(i+1, engine.workerQueue)
 	}
 
-	// open file for reading and return error if fails
-	if filepath != "" {
-		f, err := os.OpenFile(filepath, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0644)
+	if store != nil {
+		hist, err := store.Load()
 		if err != nil {
 			return nil, err
 		}
 
-		// check if f has contents and load them into engine
-		engine.fileStorage = f
-		data, err := ioutil.ReadAll(f)
-		if err != nil {
-			return nil, err
-		}
-
-		if len(data) > 0 {
-			decoded, err := decode(json.RawMessage(data))
-			if err != nil {
-				return nil, err
-			}
-
-			// we need to start processing engine right away so we can make sure buffer doesn't get blocked
-			engine.Start()
-			engine.memoryStorage = decoded
-			for k, v := range decoded {
+		if len(hist) > 0 {
+			engine.memoryStorage = hist
+			for k, v := range hist {
 				engine.pool <- v
 				engine.LogContext(k)
 			}
@@ -135,34 +123,24 @@ func (engine *Engine) Start() {
 }
 
 func (engine *Engine) saveSnapshot() error {
-	data := &bytes.Buffer{}
+	if engine.store != nil {
+		if err := engine.store.Clear(); err != nil {
+			return err
+		}
 
-	if err := json.NewEncoder(data).Encode(engine.memoryStorage); err != nil {
-		return err
+		if err := engine.store.Save(engine.memoryStorage); err != nil {
+			return err
+		}
 	}
 
-	if err := engine.ClearStorage(); err != nil {
-		return err
-	}
-
-	_, err := engine.fileStorage.WriteString(data.String())
-	if err != nil {
-		return err
-	}
-
-	if err := engine.fileStorage.Close(); err != nil {
-		return err
-	}
 	return nil
 }
 
 func cleanup(engine *Engine) {
 	engine.log = nil
-	engine.fileStorage = nil
 	engine.memoryStorage = nil
 	engine.pool = nil
 	engine.ticked = 0
-	engine.fileStorage = nil
 	engine.quit = nil
 	engine.running = false
 	engine.workerQueue = nil
@@ -171,8 +149,10 @@ func cleanup(engine *Engine) {
 }
 
 // ClearStorage empties all contents of the storage file
-func (engine *Engine) ClearStorage() error {
-	engine.fileStorage.Truncate(0)
+func (engine *Engine) clearStorage() error {
+	if engine.store != nil {
+		return engine.store.Clear()
+	}
 	return nil
 }
 
@@ -188,8 +168,8 @@ func (engine *Engine) Enqueue(contract Contract) error {
 	engine.memoryStorage[id] = contract
 	engine.pool <- contract
 
-	if engine.fileStorage != nil {
-		return engine.saveSnapshot()
+	if engine.store != nil {
+		return engine.store.Enqueue(contract)
 	}
 
 	return nil
