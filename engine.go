@@ -93,11 +93,11 @@ func (engine *Engine) Start() {
 			select {
 			// receive new contract
 			case cont := <-engine.pool:
-				if _, ok := engine.delete[cont.GetIdentifier()]; !ok {
+				if _, ok := engine.delete[cont.ID]; !ok {
 					// get next free worker
 					worker := <-engine.workerQueue
 
-					if contextMap, ok := engine.log[cont.GetIdentifier()]; ok {
+					if contextMap, ok := engine.log[cont.ID]; ok {
 						for hotExit := range contextMap {
 							worker.Start(c, hotExit, _heartBeat, cont, engine.done)
 						}
@@ -105,7 +105,7 @@ func (engine *Engine) Start() {
 						worker.Start(c, nil, _heartBeat, cont, engine.done)
 					}
 				} else {
-					delete(engine.delete, cont.GetIdentifier())
+					delete(engine.delete, cont.ID)
 				}
 			case id := <-engine.done:
 				delete(engine.log, id)
@@ -159,12 +159,12 @@ func (engine *Engine) clearStorage() error {
 // Enqueue adds a new entity contract pool to engine
 func (engine *Engine) Enqueue(contract Contract) error {
 	// check if item already exists in pool
-	id := contract.GetIdentifier()
+	id := contract.ID
 	if _, ok := engine.log[id]; ok {
 		return fmt.Errorf("cannot enqueue item. entry with id %v already exists", id)
 	}
 
-	engine.LogContext(contract.GetIdentifier())
+	engine.LogContext(contract.ID)
 	engine.memoryStorage[id] = contract
 	engine.pool <- contract
 

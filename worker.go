@@ -2,6 +2,7 @@ package deadline
 
 import (
 	"context"
+	"fmt"
 	"time"
 )
 
@@ -48,15 +49,13 @@ func (w *Worker) Start(c context.Context, hotExit context.Context, tick float64,
 				return
 			case <-timer.C:
 				w.ticked += tick
-				if work.CheckTimeout() {
+				if IsUnixTimePast(work.TimeOut) {
 					err := work.ExecOnTimeout()
 					if err != nil {
-						work.LogError(err)
-						w.Stop()
-						return
+						fmt.Println("Error: %v", err)
 					}
 
-					done <- work.GetIdentifier()
+					done <- work.ID
 					w.Stop()
 				}
 			}
