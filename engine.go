@@ -22,9 +22,6 @@ type Engine struct {
 	delete      map[string]bool
 }
 
-// Serializer takes a byte array and returns a Contract map
-type Serializer func([]byte) (map[string]Contract, error)
-
 var (
 	poolBuffer int
 	_heartBeat float64
