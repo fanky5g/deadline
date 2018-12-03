@@ -107,7 +107,7 @@ func (engine *Engine) Start() {
 			case id := <-engine.done:
 				delete(engine.log, id)
 				delete(engine.memoryStorage, id)
-				engine.saveSnapshot()
+				engine.Prune(id)
 			}
 		}
 	}()
@@ -117,20 +117,6 @@ func (engine *Engine) Start() {
 		cancel()
 		cleanup(engine)
 	}()
-}
-
-func (engine *Engine) saveSnapshot() error {
-	if engine.store != nil {
-		if err := engine.store.Clear(); err != nil {
-			return err
-		}
-
-		if err := engine.store.Save(engine.memoryStorage); err != nil {
-			return err
-		}
-	}
-
-	return nil
 }
 
 func cleanup(engine *Engine) {
@@ -143,14 +129,6 @@ func cleanup(engine *Engine) {
 	engine.workerQueue = nil
 	engine.done = nil
 	engine = nil
-}
-
-// ClearStorage empties all contents of the storage file
-func (engine *Engine) clearStorage() error {
-	if engine.store != nil {
-		return engine.store.Clear()
-	}
-	return nil
 }
 
 // Enqueue adds a new entity contract pool to engine
@@ -189,6 +167,7 @@ func (engine *Engine) Prune(contractID string) {
 		}
 	}
 
+	engine.store.Dequeue(contractID)
 	// mark for deletion
 	engine.delete[contractID] = true
 }

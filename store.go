@@ -9,7 +9,7 @@ type Store interface {
 	// Load initializes deadline with a history of contracts
 	Load() (map[string]Contract, error)
 	// Save saves a history of all contracts
-	Save(map[string]Contract) error
+	// Save(map[string]Contract) error
 	// Clear clears the store
-	Clear() error
+	// Clear() error
 }
