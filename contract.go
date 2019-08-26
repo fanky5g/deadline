@@ -30,6 +30,7 @@ func (c Contract) ExecOnTimeout() error {
 
 	client := GetClient()
 	req, _ := http.NewRequest("POST", c.Listener, body)
+	req.Header.Add("Content-Type", "application/json")
 
 	res, err := client.Do(req)
 	if err != nil {
@@ -47,6 +48,6 @@ func (c Contract) ExecOnTimeout() error {
 		return nil
 	}
 
-	fmt.Println("Error!!! Listener returned: %v", string(errorResponse))
+	fmt.Printf("Error. Listener returned: %v\n", string(errorResponse))
 	return nil
 }
